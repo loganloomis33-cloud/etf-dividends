@@ -92,6 +92,23 @@ def _gc():
         _jobs.pop(k, None)
 
 
+@app.get("/api/debug/nasdaq")
+def debug_nasdaq():
+    import data_sources as ds
+    out = {}
+    for name, u in [
+        ("ko_div", "https://api.nasdaq.com/api/quote/KO/dividends?assetclass=stocks"),
+        ("cal", "https://api.nasdaq.com/api/calendar/dividends?date=" + request.args.get("d", "2026-11-14")),
+        ("cal2", "https://api.nasdaq.com/api/calendar/dividends?date=" + request.args.get("d2", "2026-09-15")),
+    ]:
+        try:
+            r = ds.http_get(u, headers=ds._nasdaq_headers(), timeout=20)
+            out[name] = [r.status_code, r.text[:1500]]
+        except Exception as e:
+            out[name] = ["ERR", str(e)]
+    return jsonify(out)
+
+
 @app.get("/healthz")
 def health():
     return "ok"
