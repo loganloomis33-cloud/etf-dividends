@@ -92,6 +92,38 @@ def _gc():
         _jobs.pop(k, None)
 
 
+@app.get("/api/debug/sec/<etf>")
+def debug_sec(etf):
+    import requests as rq
+    import data_sources as ds
+    steps = []
+
+    def g(u, **h):
+        t = time.time()
+        try:
+            r = rq.get(u, headers={"User-Agent": ds.SEC_UA, **h}, timeout=25)
+            steps.append([u, r.status_code, round(time.time() - t, 2), len(r.content), r.text[:150]])
+            return r
+        except Exception as e:
+            steps.append([u, "ERR", round(time.time() - t, 2), str(e)[:150]])
+            return None
+    try:
+        cik, sid, _ = ds.sec_series_for_ticker(etf.upper())
+        steps.append(["series", cik, sid])
+        r = g(f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={sid}&type=NPORT-P&dateb=&owner=include&count=10&output=atom")
+        r2 = g(f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={sid}&type=NPORT-P&dateb=&owner=include&count=10&output=atom", **{"Accept-Encoding": "gzip, deflate"})
+        if r is not None and r.status_code == 200:
+            import re as _re
+            hrefs = _re.findall(r"<filing-href>(.*?)</filing-href>", r.text)
+            steps.append(["hrefs", hrefs[:3]])
+            if hrefs:
+                g(hrefs[0].rsplit("/", 1)[0] + "/primary_doc.xml")
+                g(hrefs[0].rsplit("/", 1)[0] + "/primary_doc.xml", **{"Accept-Encoding": "gzip, deflate"})
+    except Exception as e:
+        steps.append(["exception", str(e)])
+    return jsonify(steps=steps)
+
+
 @app.get("/healthz")
 def health():
     return "ok"
