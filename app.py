@@ -94,33 +94,17 @@ def _gc():
 
 @app.get("/api/debug/sec/<etf>")
 def debug_sec(etf):
-    import requests as rq
     import data_sources as ds
     steps = []
-
-    def g(u, **h):
-        t = time.time()
-        try:
-            r = rq.get(u, headers={"User-Agent": ds.SEC_UA, **h}, timeout=25)
-            steps.append([u, r.status_code, round(time.time() - t, 2), len(r.content), r.text[:150]])
-            return r
-        except Exception as e:
-            steps.append([u, "ERR", round(time.time() - t, 2), str(e)[:150]])
-            return None
+    t = time.time()
     try:
         cik, sid, _ = ds.sec_series_for_ticker(etf.upper())
-        steps.append(["series", cik, sid])
-        r = g(f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={sid}&type=NPORT-P&dateb=&owner=include&count=10&output=atom")
-        r2 = g(f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={sid}&type=NPORT-P&dateb=&owner=include&count=10&output=atom", **{"Accept-Encoding": "gzip, deflate"})
-        if r is not None and r.status_code == 200:
-            import re as _re
-            hrefs = _re.findall(r"<filing-href>(.*?)</filing-href>", r.text)
-            steps.append(["hrefs", hrefs[:3]])
-            if hrefs:
-                g(hrefs[0].rsplit("/", 1)[0] + "/primary_doc.xml")
-                g(hrefs[0].rsplit("/", 1)[0] + "/primary_doc.xml", **{"Accept-Encoding": "gzip, deflate"})
+        url, filed = ds.latest_nport_url(sid, cik)
+        steps.append(["index", url, filed, round(time.time() - t, 2)])
+        r = ds._sec_get(url)
+        steps.append(["doc", r.status_code, len(r.content), round(time.time() - t, 2)])
     except Exception as e:
-        steps.append(["exception", str(e)])
+        steps.append(["exception", str(e)[:300], round(time.time() - t, 2)])
     return jsonify(steps=steps)
 
 

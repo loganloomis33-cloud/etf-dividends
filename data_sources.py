@@ -295,7 +295,29 @@ def _strip_ns(root):
     return root
 
 
-def latest_nport_url(series_id):
+def latest_nport_url(series_id, cik=None):
+    # 1) EDGAR full-text search (fast, reliable from cloud hosts)
+    try:
+        r = _sec_get(f"https://efts.sec.gov/LATEST/search-index?q=%22{series_id}%22&forms=NPORT-P")
+        if r.status_code == 200:
+            hits = ((r.json().get("hits") or {}).get("hits")) or []
+            best = None
+            for h in hits:
+                src = h.get("_source") or {}
+                hid = h.get("_id") or ""
+                adsh = src.get("adsh") or hid.split(":")[0]
+                fdate = src.get("file_date") or ""
+                if not adsh or (src.get("form") or "NPORT-P") not in ("NPORT-P", "NPORT-P/A"):
+                    continue
+                if best is None or fdate > best[0]:
+                    c = cik or (src.get("ciks") or ["0"])[0]
+                    best = (fdate, adsh, int(str(c)))
+            if best:
+                fdate, adsh, c = best
+                return f"https://www.sec.gov/Archives/edgar/data/{c}/{adsh.replace('-', '')}/primary_doc.xml", fdate
+    except Exception as e:
+        log.info("EDGAR full-text search failed for %s: %s", series_id, e)
+    # 2) legacy browse-edgar atom feed
     url = ("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany"
            f"&CIK={series_id}&type=NPORT-P&dateb=&owner=include&count=10&output=atom")
     r = _sec_get(url)
@@ -364,7 +386,7 @@ def fetch_nport(etf):
     cached = cache.get(key, NPORT_TTL)
     if cached:
         return cached
-    url, filed = latest_nport_url(series_id)
+    url, filed = latest_nport_url(series_id, cik)
     r = _sec_get(url)
     if r.status_code != 200:
         raise SourceError(f"N-PORT document HTTP {r.status_code}")

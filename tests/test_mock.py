@@ -120,6 +120,11 @@ def fake_get(url, headers=None, timeout=20, **kw):
     if "company_tickers_mf.json" in url:
         return R(js={"fields": ["cik", "seriesId", "classId", "symbol"],
                      "data": [[1454889, "S000033459", "C000102850", "SCHD"]]})
+    if "efts.sec.gov" in url:
+        assert "S000033459" in url
+        return R(js={"hits": {"hits": [
+            {"_id": "0001752724-25-111111:primary_doc.xml", "_source": {"adsh": "0001752724-25-111111", "file_date": "2025-05-28", "form": "NPORT-P", "ciks": ["0001454889"]}},
+            {"_id": "0001752724-25-222222:primary_doc.xml", "_source": {"adsh": "0001752724-25-222222", "file_date": "2025-08-27", "form": "NPORT-P", "ciks": ["0001454889"]}}]}})
     if "browse-edgar" in url:
         assert "S000033459" in url
         return R(200, ATOM)
