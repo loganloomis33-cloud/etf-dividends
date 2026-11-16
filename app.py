@@ -32,7 +32,7 @@ def _run(job_id, etf, limit):
 
     try:
         res = analysis.analyze(etf, limit, progress)
-        cache.set(f"result3:{etf}:{limit}", res)
+        cache.set(f"result4:{etf}:{limit}", res)
         job.update(status="done", result=res, message="Done")
     except Exception as e:
         log.exception("analysis failed for %s", etf)
@@ -55,7 +55,7 @@ def start():
     refresh = bool(body.get("refresh"))
 
     if not refresh:
-        cached = cache.get(f"result3:{etf}:{limit}", RESULT_TTL)
+        cached = cache.get(f"result4:{etf}:{limit}", RESULT_TTL)
         if cached:
             jid = uuid.uuid4().hex
             _jobs[jid] = {"status": "done", "result": cached, "done": 1, "total": 1, "message": "Cached", "ts": time.time()}
@@ -90,23 +90,6 @@ def _gc():
     cutoff = time.time() - 3600
     for k in [k for k, v in _jobs.items() if v.get("ts", 0) < cutoff and v.get("status") != "running"]:
         _jobs.pop(k, None)
-
-
-@app.get("/api/debug/nasdaq")
-def debug_nasdaq():
-    import data_sources as ds
-    out = {}
-    for name, u in [
-        ("ko_div", "https://api.nasdaq.com/api/quote/KO/dividends?assetclass=stocks"),
-        ("cal", "https://api.nasdaq.com/api/calendar/dividends?date=" + request.args.get("d", "2026-11-14")),
-        ("cal2", "https://api.nasdaq.com/api/calendar/dividends?date=" + request.args.get("d2", "2026-09-15")),
-    ]:
-        try:
-            r = ds.http_get(u, headers=ds._nasdaq_headers(), timeout=20)
-            out[name] = [r.status_code, r.text[:1500]]
-        except Exception as e:
-            out[name] = ["ERR", str(e)]
-    return jsonify(out)
 
 
 @app.get("/healthz")

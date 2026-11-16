@@ -109,7 +109,7 @@ def analyze(etf, max_holdings=600, progress=lambda done, total, msg: None):
 
     # ---- events
     events, holdings_out = [], []
-    src_count = {"nasdaq": 0, "yahoo": 0, None: 0}
+    src_count = {"nasdaq": 0, "stockanalysis": 0, "yahoo": 0, None: 0}
     for x in eq:
         d = divs.get(x["ticker"]) or {"events": [], "source": None}
         src_count[d.get("source")] = src_count.get(d.get("source"), 0) + 1

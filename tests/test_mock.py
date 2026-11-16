@@ -137,6 +137,14 @@ def fake_get(url, headers=None, timeout=20, **kw):
         if sym == "XOM":
             return R(403, b"blocked")
         return R(js=NASDAQ.get(sym, {"data": None}))
+    if "stockanalysis.com" in url:
+        if "/stocks/ko/" in url:
+            e1, p1, e2, p2 = (T + timedelta(days=15)).isoformat(), (T + timedelta(days=29)).isoformat(), (T - timedelta(days=76)).isoformat(), (T - timedelta(days=60)).isoformat()
+            data = [{"infoBox": 1, "history": 2}, "KO pays dividends", [3, 7],
+                    {"dt": 4, "amt": 5, "dec": 6, "record": 4, "pay": 11}, e1, "$0.530", "n/a",
+                    {"dt": 8, "amt": 9, "dec": 6, "record": 8, "pay": 10}, e2, "$0.530", p2, p1]
+            return R(js={"type": "data", "nodes": [{"type": "data", "data": [{}]}, None, {"type": "data", "data": data}]})
+        return R(404, b"not found")
     if "finance.yahoo.com" in url:
         sym = url.split("/chart/")[1].split("?")[0]
         params = kw.get("params") or {}
@@ -189,7 +197,10 @@ def test_spy():
     tick = {h["ticker"]: h for h in r["holdings"]}
     assert set(tick) == {"AAPL", "MSFT", "KO", "BRK.B"}, tick.keys()
     assert abs(tick["AAPL"]["ttm_div_per_share"] - 0.26 * 4) < 1e-9, tick["AAPL"]
-    assert tick["KO"]["div_source"] == "yahoo" and tick["KO"]["ttm_div_per_share"] > 0, tick["KO"]
+    assert tick["KO"]["div_source"] == "stockanalysis", tick["KO"]
+    assert abs(tick["KO"]["ttm_div_per_share"] - 0.53) < 1e-9 and tick["KO"]["next_pay"] == (T + timedelta(days=29)).isoformat(), tick["KO"]
+    ko = [e for e in r["events"] if e["ticker"] == "KO" and e["kind"] != "projected"]
+    assert not any(e["pay_est"] for e in ko), ko
     assert r["shares_outstanding"] and r["shares_outstanding"] > 0
     kinds = {e["kind"] for e in r["events"]}
     assert {"paid", "declared", "projected"} <= kinds, kinds

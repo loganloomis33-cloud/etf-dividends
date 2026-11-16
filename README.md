@@ -16,8 +16,9 @@ Enter an ETF ticker to see:
 | | Vanguard holdings API | VYM, VOO, VTI and other Vanguard funds |
 | | SEC EDGAR N-PORT filings (fallback) | Works for almost any US ETF (iShares, Schwab/SCHD, JPMorgan, etc.). Share counts are exact but can be 2–5 months old. |
 | Ticker lookup for N-PORT | OpenFIGI | Maps CUSIPs to tickers when the filing has no ticker |
-| Dividends | Nasdaq dividend history | Includes ex, record, declared and pay dates |
-| | Yahoo Finance (fallback) | Ex-date and amount only. Pay date is estimated as ex-date + 14 days and marked with * |
+| Dividends | Nasdaq dividend history | Includes ex, record, declared and pay dates (Nasdaq-listed stocks only) |
+| | StockAnalysis (NYSE and anything Nasdaq doesn't cover) | Ex, record and pay dates, including declared upcoming dividends |
+| | Yahoo Finance (last resort) | Ex-date and amount only. Pay date is estimated as ex-date + 14 days and marked with * |
 | Prices / shares outstanding | Yahoo Finance, Nasdaq | Shares outstanding = net assets ÷ ETF price. You can edit it in the UI. |
 
 All lookups are cached in SQLite. Holdings are cached for 6 hours and dividends for 12.

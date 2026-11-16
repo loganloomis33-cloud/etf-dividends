@@ -594,30 +594,79 @@ def yahoo_dividends(ticker):
     return out
 
 
+def _devalue(arr, i, depth=0):
+    """Resolve SvelteKit 'devalue' flattened data."""
+    if not isinstance(i, int) or i < 0 or i >= len(arr) or depth > 50:
+        return None
+    v = arr[i]
+    if isinstance(v, dict):
+        return {k: _devalue(arr, idx, depth + 1) for k, idx in v.items()}
+    if isinstance(v, list):
+        if v and isinstance(v[0], str):  # special encodings (Date, Map, ...)
+            return v[1] if len(v) > 1 else None
+        return [_devalue(arr, idx, depth + 1) for idx in v]
+    return v
+
+
+def stockanalysis_dividends(ticker, kind="stocks"):
+    sym = ticker.lower()
+    url = f"https://stockanalysis.com/{kind}/{sym}/dividend/__data.json"
+    r = http_get(url, headers={"User-Agent": BROWSER_UA, "Accept": "application/json"}, timeout=15)
+    if r.status_code != 200:
+        raise SourceError(f"stockanalysis HTTP {r.status_code}")
+    j = r.json()
+    history = None
+    for node in j.get("nodes") or []:
+        data = (node or {}).get("data")
+        if isinstance(data, list) and data and isinstance(data[0], dict) and "history" in data[0]:
+            root = _devalue(data, 0)
+            history = root.get("history")
+            break
+    if history is None:
+        raise SourceError("stockanalysis: no dividend history")
+    out = []
+    for h in history or []:
+        if not isinstance(h, dict):
+            continue
+        amt = to_float(h.get("amt"))
+        ex = parse_date(h.get("dt"))
+        if amt is None or not ex:
+            continue
+        out.append({"ex_date": ex, "pay_date": parse_date(h.get("pay")), "record_date": parse_date(h.get("record")),
+                    "decl_date": parse_date(h.get("dec")), "amount": amt, "type": "Cash", "currency": "USD"})
+    return out
+
+
 def get_dividends(ticker, assetclass="stocks"):
     """Returns {'source':..., 'events':[...]} sorted by ex_date ascending."""
-    key = f"div2:{assetclass}:{ticker}"
+    key = f"div3:{assetclass}:{ticker}"
     cached = cache.get(key, DIVIDENDS_TTL)
     if cached is not None:
         return cached
-    res, err = None, None
+    res, errs = None, []
+    # 1) Nasdaq (exact dates; only covers Nasdaq-listed symbols)
     try:
         ev = nasdaq_dividends(ticker, assetclass)
         if ev:
             res = {"source": "nasdaq", "events": ev}
     except Exception as e:
-        err = e
-        log.info("nasdaq dividends failed for %s: %s", ticker, e)
+        errs.append(f"nasdaq: {e}")
+    # 2) StockAnalysis (exact dates incl. pay date, covers NYSE)
     if res is None:
-        # Nasdaq returns no rows for many NYSE-listed stocks -> Yahoo (ex-date + amount)
+        try:
+            ev = stockanalysis_dividends(ticker, "etf" if assetclass == "etf" else "stocks")
+            res = {"source": "stockanalysis", "events": ev}
+        except Exception as e:
+            errs.append(f"stockanalysis: {e}")
+    # 3) Yahoo (ex-date + amount only; pay date estimated later)
+    if res is None:
         try:
             ev = yahoo_dividends(ticker)
             res = {"source": "yahoo" if ev else None, "events": ev}
-        except Exception as e2:
-            log.info("yahoo dividends failed for %s: %s", ticker, e2)
-            if err is not None:
-                return {"source": None, "events": [], "error": f"{err}; {e2}"}
-            res = {"source": None, "events": []}
+        except Exception as e:
+            errs.append(f"yahoo: {e}")
+            log.info("all dividend sources failed for %s: %s", ticker, errs)
+            return {"source": None, "events": [], "error": "; ".join(errs)}
     res["events"].sort(key=lambda x: x["ex_date"])
     cache.set(key, res)
     return res
