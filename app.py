@@ -32,7 +32,7 @@ def _run(job_id, etf, limit):
 
     try:
         res = analysis.analyze(etf, limit, progress)
-        cache.set(f"result:{etf}:{limit}", res)
+        cache.set(f"result2:{etf}:{limit}", res)
         job.update(status="done", result=res, message="Done")
     except Exception as e:
         log.exception("analysis failed for %s", etf)
@@ -55,7 +55,7 @@ def start():
     refresh = bool(body.get("refresh"))
 
     if not refresh:
-        cached = cache.get(f"result:{etf}:{limit}", RESULT_TTL)
+        cached = cache.get(f"result2:{etf}:{limit}", RESULT_TTL)
         if cached:
             jid = uuid.uuid4().hex
             _jobs[jid] = {"status": "done", "result": cached, "done": 1, "total": 1, "message": "Cached", "ts": time.time()}
@@ -90,22 +90,6 @@ def _gc():
     cutoff = time.time() - 3600
     for k in [k for k, v in _jobs.items() if v.get("ts", 0) < cutoff and v.get("status") != "running"]:
         _jobs.pop(k, None)
-
-
-@app.get("/api/debug/sec/<etf>")
-def debug_sec(etf):
-    import data_sources as ds
-    steps = []
-    t = time.time()
-    try:
-        cik, sid, _ = ds.sec_series_for_ticker(etf.upper())
-        url, filed = ds.latest_nport_url(sid, cik)
-        steps.append(["index", url, filed, round(time.time() - t, 2)])
-        r = ds._sec_get(url)
-        steps.append(["doc", r.status_code, len(r.content), round(time.time() - t, 2)])
-    except Exception as e:
-        steps.append(["exception", str(e)[:300], round(time.time() - t, 2)])
-    return jsonify(steps=steps)
 
 
 @app.get("/healthz")

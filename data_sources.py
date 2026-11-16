@@ -551,22 +551,28 @@ def yahoo_dividends(ticker):
 
 def get_dividends(ticker, assetclass="stocks"):
     """Returns {'source':..., 'events':[...]} sorted by ex_date ascending."""
-    key = f"div:{assetclass}:{ticker}"
+    key = f"div2:{assetclass}:{ticker}"
     cached = cache.get(key, DIVIDENDS_TTL)
     if cached is not None:
         return cached
-    res = None
+    res, err = None, None
     try:
         ev = nasdaq_dividends(ticker, assetclass)
-        res = {"source": "nasdaq", "events": ev}
+        if ev:
+            res = {"source": "nasdaq", "events": ev}
     except Exception as e:
+        err = e
         log.info("nasdaq dividends failed for %s: %s", ticker, e)
+    if res is None:
+        # Nasdaq returns no rows for many NYSE-listed stocks -> Yahoo (ex-date + amount)
         try:
             ev = yahoo_dividends(ticker)
-            res = {"source": "yahoo", "events": ev}
+            res = {"source": "yahoo" if ev else None, "events": ev}
         except Exception as e2:
             log.info("yahoo dividends failed for %s: %s", ticker, e2)
-            return {"source": None, "events": [], "error": f"{e}; {e2}"}
+            if err is not None:
+                return {"source": None, "events": [], "error": f"{err}; {e2}"}
+            res = {"source": None, "events": []}
     res["events"].sort(key=lambda x: x["ex_date"])
     cache.set(key, res)
     return res

@@ -100,7 +100,7 @@ def nasdaq_rows(amount, freq_days, first_offset, n=6, pay_lag=14):
 NASDAQ = {
     "AAPL": nasdaq_rows(0.26, 91, 10),       # next ex in 10 days (declared)
     "MSFT": nasdaq_rows(0.91, 91, -5),       # paid ~9 days from now
-    "KO": nasdaq_rows(0.51, 91, -40),
+    "KO": {"data": {"dividends": {"rows": None}}},
     "PEP": nasdaq_rows(1.4225, 91, -20),
     "BRK.B": {"data": {"dividends": {"rows": []}}},
     "SPY": nasdaq_rows(1.80, 91, -30),
@@ -141,7 +141,7 @@ def fake_get(url, headers=None, timeout=20, **kw):
         prices = {"AAPL": 230.0, "MSFT": 420.0, "KO": 68.0, "BRK-B": 470.0, "SPY": 600.0, "SCHD": 27.5, "XOM": 115.0, "PEP": 150.0}
         res = {"meta": {"regularMarketPrice": prices.get(sym, 50.0)},
                "indicators": {"quote": [{"close": [prices.get(sym, 50.0) * 0.98, None]}]}}
-        if sym == "XOM" and params.get("events") == "div":
+        if sym in ("XOM", "KO") and params.get("events") == "div":
             base = time.time()
             res["events"] = {"dividends": {str(int(base - k * 91 * 86400)): {"amount": 0.99, "date": int(base - k * 91 * 86400 - 3 * 86400)} for k in range(5)}}
         return R(js={"chart": {"result": [res]}})
@@ -187,6 +187,7 @@ def test_spy():
     tick = {h["ticker"]: h for h in r["holdings"]}
     assert set(tick) == {"AAPL", "MSFT", "KO", "BRK.B"}, tick.keys()
     assert abs(tick["AAPL"]["ttm_div_per_share"] - 0.26 * 4) < 1e-9, tick["AAPL"]
+    assert tick["KO"]["div_source"] == "yahoo" and tick["KO"]["ttm_div_per_share"] > 0, tick["KO"]
     assert r["shares_outstanding"] and r["shares_outstanding"] > 0
     kinds = {e["kind"] for e in r["events"]}
     assert {"paid", "declared", "projected"} <= kinds, kinds
