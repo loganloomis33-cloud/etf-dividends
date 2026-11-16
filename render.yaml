@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: etf-dividends
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --threads 8 --timeout 120 --bind 0.0.0.0:$PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: SEC_USER_AGENT
+        sync: false
+      - key: OPENFIGI_API_KEY
+        sync: false

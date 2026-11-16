@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ETF Dividend Look-Through</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#fff; --ink:#15181d; --muted:#667085; --line:#e4e7ec;
+    --accent:#0f766e; --accent-ink:#fff; --accent-soft:#ccfbf1; --warn:#9a6700; --warn-bg:#fff8c5;
+    --proj:#94a3b8; --bad:#b42318;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#0d1117; --panel:#161b22; --ink:#e6edf3; --muted:#8b949e; --line:#2b313a;
+      --accent:#2dd4bf; --accent-ink:#04201d; --accent-soft:#0f3a36; --warn:#e3b341; --warn-bg:#2d2511; --proj:#5b6675; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+  header{padding:22px 24px 0;max-width:1240px;margin:auto}
+  h1{font-size:22px;margin:0 0 4px;letter-spacing:-.01em}
+  .sub{color:var(--muted);margin:0 0 16px}
+  main{max-width:1240px;margin:auto;padding:0 24px 60px}
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px}
+  .tab{padding:9px 14px;border:0;background:none;color:var(--muted);font-weight:600;cursor:pointer;border-bottom:2px solid transparent;font-size:14px}
+  .tab.on{color:var(--ink);border-bottom-color:var(--accent)}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);font-weight:600}
+  input,select{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink)}
+  input.tick{text-transform:uppercase;width:110px}
+  button.btn{font:inherit;font-weight:600;padding:8px 16px;border-radius:7px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);cursor:pointer}
+  button.ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+  button:disabled{opacity:.5;cursor:default}
+  .check{flex-direction:row;align-items:center;gap:6px;font-weight:500}
+  .progress{height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:12px}
+  .progress>div{height:100%;background:var(--accent);width:0;transition:width .3s}
+  .pmsg{color:var(--muted);font-size:12px;margin-top:6px;font-family:var(--mono)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .card .k{font-size:12px;color:var(--muted);font-weight:600}
+  .card .v{font-size:20px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums}
+  .card .n{font-size:12px;color:var(--muted);margin-top:2px}
+  .card input{width:100%;margin-top:4px;font-weight:700;font-variant-numeric:tabular-nums}
+  .warn{background:var(--warn-bg);color:var(--warn);border-radius:8px;padding:8px 12px;margin:0 0 12px;font-size:13px}
+  .warn ul{margin:0;padding-left:18px}
+  .err{color:var(--bad);font-weight:600;margin-top:10px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{border:0;background:transparent;color:var(--muted);padding:7px 12px;font:inherit;font-weight:600;cursor:pointer}
+  .seg button.on{background:var(--accent-soft);color:var(--ink)}
+  .controls{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  .total-line{margin-left:auto;font-weight:700;font-variant-numeric:tabular-nums}
+  .chartbox{position:relative;height:280px}
+  h2{font-size:15px;margin:0 0 10px}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+  th{font-size:12px;color:var(--muted);font-weight:600;cursor:pointer;user-select:none;position:sticky;top:0;background:var(--panel)}
+  th.l,td.l{text-align:left}
+  td.name{max-width:260px;overflow:hidden;text-overflow:ellipsis}
+  .scroll{max-height:520px;overflow:auto}
+  tr.day{cursor:pointer}
+  tr.day:hover td{background:var(--bg)}
+  tr.detail td{background:var(--bg);padding:0}
+  tr.detail table td,tr.detail table th{font-size:12px;padding:5px 8px;background:transparent;position:static}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:9px;border:1px solid var(--line);color:var(--muted)}
+  .badge.declared{color:var(--accent);border-color:var(--accent)}
+  .badge.projected{color:var(--proj);border-style:dashed}
+  .muted{color:var(--muted)}
+  .pf-row{display:flex;gap:8px;margin-bottom:8px;align-items:center}
+  .pf-row input.sh{width:140px}
+  details summary{cursor:pointer;color:var(--muted);font-weight:600}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:900px){.two{grid-template-columns:1fr}}
+  .hidden{display:none}
+  footer{color:var(--muted);font-size:12px;max-width:1240px;margin:auto;padding:0 24px 30px}
+</style>
+</head>
+<body>
+<header>
+  <h1>ETF Dividend Look-Through</h1>
+  <p class="sub">See exactly which companies inside an ETF pay dividends, when the fund gets paid, and how much that is per ETF share or for your portfolio.</p>
+</header>
+<main>
+  <div class="tabs">
+    <button class="tab on" data-tab="etf">ETF lookup</button>
+    <button class="tab" data-tab="pf">My portfolio</button>
+  </div>
+
+  <!-- ================= ETF VIEW ================= -->
+  <section id="tab-etf">
+    <div class="panel">
+      <form id="etfForm" class="row">
+        <label>ETF ticker<input id="etfTicker" class="tick" placeholder="SCHD" required></label>
+        <label>Max holdings to analyze<input id="etfMax" type="number" min="10" max="4000" value="600" style="width:120px"></label>
+        <label class="check"><input type="checkbox" id="etfRefresh"> Force refresh</label>
+        <button class="btn" id="etfGo">Analyze</button>
+      </form>
+      <div id="etfProg" class="hidden"><div class="progress"><div></div></div><div class="pmsg"></div></div>
+      <div id="etfErr" class="err"></div>
+    </div>
+    <div id="etfOut" class="hidden"></div>
+  </section>
+
+  <!-- ================= PORTFOLIO VIEW ================= -->
+  <section id="tab-pf" class="hidden">
+    <div class="panel">
+      <h2>Your ETFs</h2>
+      <div id="pfRows"></div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn ghost" id="pfAdd" type="button">+ Add ETF</button>
+        <label>Max holdings per ETF<input id="pfMax" type="number" min="10" max="4000" value="600" style="width:120px"></label>
+        <button class="btn" id="pfGo" type="button">Calculate my dividends</button>
+      </div>
+      <div id="pfProg" class="hidden"><div class="progress"><div></div></div><div class="pmsg"></div></div>
+      <div id="pfErr" class="err"></div>
+    </div>
+    <div id="pfOut" class="hidden"></div>
+  </section>
+</main>
+<footer>
+  Data: ETF issuers (SPDR, Invesco, Vanguard) and SEC EDGAR N-PORT filings for holdings; Nasdaq / Yahoo Finance for dividends and prices.
+  Figures are gross dividends before fund expenses and withholding, based on current holdings applied to each payment. Not investment advice.
+</footer>
+
+<script>
+const $ = (s, el=document) => el.querySelector(s);
+const TODAY = new Date().toISOString().slice(0,10);
+const addDays = (iso, n) => { const d = new Date(iso+"T00:00:00Z"); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); };
+const fmt$ = (v, d=2) => v==null||isNaN(v) ? "—" : (v<0?"-":"") + "$" + Math.abs(v).toLocaleString(undefined,{minimumFractionDigits:d, maximumFractionDigits:d});
+const fmtN = (v, d=0) => v==null||isNaN(v) ? "—" : Number(v).toLocaleString(undefined,{minimumFractionDigits:d, maximumFractionDigits:d});
+const fmtPS = v => v==null||isNaN(v) ? "—" : "$" + (Math.abs(v) >= 1 ? v.toFixed(4) : v.toFixed(6));
+const fmtDate = iso => iso ? new Date(iso+"T00:00:00Z").toLocaleDateString(undefined,{timeZone:"UTC",year:"numeric",month:"short",day:"numeric"}) : "—";
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const store = { get(k,d){ try{ return JSON.parse(localStorage.getItem(k)) ?? d }catch{ return d } }, set(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)) }catch{} } };
+
+// ---------- tabs
+document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x===b));
+  $("#tab-etf").classList.toggle("hidden", b.dataset.tab!=="etf");
+  $("#tab-pf").classList.toggle("hidden", b.dataset.tab!=="pf");
+});
+
+// ---------- API
+async function runAnalysis(ticker, max, refresh, onProgress){
+  const r = await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ticker,max_holdings:max,refresh})});
+  const j = await r.json();
+  if(!r.ok) throw new Error(j.error || "Request failed");
+  while(true){
+    const s = await (await fetch("/api/job/"+j.job_id)).json();
+    if(s.error && !s.status) throw new Error(s.error);
+    onProgress && onProgress(s.done||0, s.total||1, s.message||"");
+    if(s.status==="done") return s.result;
+    if(s.status==="error") throw new Error(s.message);
+    await new Promise(res=>setTimeout(res, 1200));
+  }
+}
+function setProg(box, done, total, msg){
+  box.classList.remove("hidden");
+  $(".progress>div", box).style.width = Math.min(100, 100*done/Math.max(total,1)) + "%";
+  $(".pmsg", box).textContent = msg;
+}
+
+// ---------- shared aggregation
+// range: "upcoming" (declared, not yet hit) | "next12" (declared + projected) | "ttm" (last 12 months actual)
+function inRange(e, basis, range){
+  const d = basis==="ex" ? e.ex_date : e.pay_date;
+  if(range==="ttm") return e.kind!=="projected" && d < TODAY && d >= addDays(TODAY,-365);
+  if(range==="upcoming") return e.kind!=="projected" && d >= TODAY;
+  return d >= TODAY && d <= addDays(TODAY,365);
+}
+function groupByDay(events, basis, range, amountFn){
+  const days = new Map();
+  for(const e of events){
+    if(!inRange(e, basis, range)) continue;
+    const amt = amountFn(e);
+    if(!amt) continue;
+    const k = basis==="ex" ? e.ex_date : e.pay_date;
+    if(!days.has(k)) days.set(k, {date:k, total:0, items:[]});
+    const g = days.get(k); g.total += amt; g.items.push({...e, _amt:amt});
+  }
+  const arr = [...days.values()].sort((a,b)=> range==="ttm" ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date));
+  arr.forEach(g => g.items.sort((a,b)=>b._amt-a._amt));
+  return arr;
+}
+const charts = {};
+function drawChart(canvasId, days, label, perShare){
+  const sorted = [...days].sort((a,b)=>a.date.localeCompare(b.date));
+  const css = getComputedStyle(document.documentElement);
+  const accent = css.getPropertyValue("--accent").trim(), proj = css.getPropertyValue("--proj").trim(), ink = css.getPropertyValue("--muted").trim(), line = css.getPropertyValue("--line").trim();
+  charts[canvasId] && charts[canvasId].destroy();
+  if(typeof Chart === "undefined") return;
+  charts[canvasId] = new Chart(document.getElementById(canvasId), {
+    type:"bar",
+    data:{ labels: sorted.map(d=>d.date), datasets:[{ label, data: sorted.map(d=>d.total),
+      backgroundColor: sorted.map(d => d.items.every(i=>i.kind==="projected") ? proj : accent), borderRadius:3, maxBarThickness:22 }]},
+    options:{ responsive:true, maintainAspectRatio:false, animation:false,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{
+        title: c => fmtDate(c[0].label),
+        label: c => { const d = sorted[c.dataIndex]; const lines=[label+": "+fmt$(d.total)]; if(perShare) lines.push("Per ETF share: "+fmtPS(d.total/perShare)); lines.push(d.items.length+" companies"); return lines; } } } },
+      scales:{ x:{ ticks:{color:ink, maxRotation:0, autoSkipPadding:14, callback(v){ return fmtDate(this.getLabelForValue(v)); }}, grid:{display:false}},
+               y:{ ticks:{color:ink, callback:v=>"$"+Number(v).toLocaleString(undefined,{notation:"compact"})}, grid:{color:line}} } }
+  });
+}
+function sortable(table){
+  table.querySelectorAll("th[data-k]").forEach(th => th.onclick = () => {
+    const k = th.dataset.k, tb = table.tBodies[0], rows=[...tb.rows];
+    const dir = th.dataset.dir = th.dataset.dir==="desc" ? "asc" : "desc";
+    rows.sort((a,b)=>{ const x=a.dataset[k], y=b.dataset[k]; const nx=parseFloat(x), ny=parseFloat(y);
+      const c = (!isNaN(nx)&&!isNaN(ny)) ? nx-ny : String(x||"").localeCompare(String(y||"")); return dir==="asc"?c:-c; });
+    rows.forEach(r=>tb.appendChild(r));
+  });
+}
+function segHTML(name, opts, cur){
+  return `<div class="seg" data-seg="${name}">` + opts.map(([v,l])=>`<button type="button" data-v="${v}" class="${v===cur?"on":""}">${l}</button>`).join("") + `</div>`;
+}
+function bindSeg(root, onChange){
+  root.querySelectorAll(".seg").forEach(seg => seg.querySelectorAll("button").forEach(b => b.onclick = () => {
+    seg.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b)); onChange(seg.dataset.seg, b.dataset.v);
+  }));
+}
+const KIND_BADGE = k => `<span class="badge ${k}">${k==="paid"?"paid":k==="declared"?"declared":"projected"}</span>`;
+const RANGE_OPTS = [["upcoming","Upcoming (declared)"],["next12","Next 12 months (incl. projected)"],["ttm","Last 12 months"]];
+const BASIS_OPTS = [["pay","By pay date"],["ex","By ex-date"]];
+
+function dailyTableHTML(days, perShare, amountLabel){
+  if(!days.length) return `<p class="muted">No dividend payments in this range.</p>`;
+  let h = `<div class="scroll"><table><thead><tr><th class="l">Date</th><th>${amountLabel}</th>${perShare?"<th>Per ETF share</th>":""}<th>Companies</th></tr></thead><tbody>`;
+  days.forEach((d,i)=>{
+    h += `<tr class="day" data-i="${i}"><td class="l">▸ ${fmtDate(d.date)}${d.date===TODAY?" <b>(today)</b>":""}</td><td><b>${fmt$(d.total)}</b></td>${perShare?`<td>${fmtPS(d.total/perShare)}</td>`:""}<td>${d.items.length}</td></tr>`;
+    h += `<tr class="detail hidden" data-for="${i}"><td colspan="${perShare?4:3}"><table><thead><tr><th class="l">Ticker</th><th class="l">Company</th><th>Ex-date</th><th>Pay date</th><th>$/share</th><th>Shares</th><th>Amount</th><th class="l">Status</th></tr></thead><tbody>` +
+      d.items.map(e=>`<tr><td class="l"><b>${esc(e.ticker)}</b></td><td class="l name">${esc(e.name)}${e.via?` <span class="muted">via ${esc(e.via)}</span>`:""}</td><td>${fmtDate(e.ex_date)}</td><td>${fmtDate(e.pay_date)}${e.pay_est?"*":""}</td><td>${fmtPS(e.amount)}</td><td>${fmtN(e._shares ?? e.shares, e._shares!=null && e._shares<100 ? 3 : 0)}</td><td>${fmt$(e._amt)}</td><td class="l">${KIND_BADGE(e.kind)}${/special/i.test(e.type)?' <span class="badge">special</span>':""}</td></tr>`).join("") +
+      `</tbody></table></td></tr>`;
+  });
+  return h + "</tbody></table></div>";
+}
+function bindDaily(root){
+  root.querySelectorAll("tr.day").forEach(tr => tr.onclick = () => {
+    const det = root.querySelector(`tr.detail[data-for="${tr.dataset.i}"]`);
+    det.classList.toggle("hidden");
+    tr.cells[0].innerHTML = tr.cells[0].innerHTML.replace(/^[▸▾]/, det.classList.contains("hidden")?"▸":"▾");
+  });
+}
+
+// =============== ETF VIEW =================
+let etfData = null, etfState = {range:"upcoming", basis:"pay"};
+$("#etfForm").onsubmit = async ev => {
+  ev.preventDefault();
+  const t = $("#etfTicker").value.trim().toUpperCase(); if(!t) return;
+  $("#etfErr").textContent = ""; $("#etfGo").disabled = true; $("#etfOut").classList.add("hidden");
+  try{
+    etfData = await runAnalysis(t, +$("#etfMax").value||600, $("#etfRefresh").checked, (d,tot,m)=>setProg($("#etfProg"),d,tot,m));
+    etfData._so = etfData.shares_outstanding;
+    renderETF();
+  }catch(e){ $("#etfErr").textContent = e.message; }
+  finally{ $("#etfGo").disabled = false; $("#etfProg").classList.add("hidden"); }
+};
+function soFor(r){ return r._so || r.shares_outstanding; }
+function eventsWithShares(r){ const sh = Object.fromEntries(r.holdings.map(h=>[h.ticker,h.shares])); return r.events.map(e=>({...e, shares: sh[e.ticker]})); }
+
+function renderETF(){
+  const r = etfData, so = soFor(r), out = $("#etfOut");
+  const perShareTTM = so ? r.fund_ttm_income/so : null;
+  out.classList.remove("hidden");
+  out.innerHTML = `
+    <div class="cards">
+      <div class="card"><div class="k">Fund</div><div class="v">${esc(r.etf)}</div><div class="n">${esc(r.fund_name||"")}</div></div>
+      <div class="card"><div class="k">Holdings source</div><div class="v" style="font-size:14px">${esc(r.holdings_source)}</div><div class="n">as of ${fmtDate(r.holdings_as_of)} · ${r.analyzed_count} companies analyzed${r.filing_url?` · <a href="${esc(r.filing_url)}" target="_blank" rel="noopener">filing</a>`:""}</div></div>
+      <div class="card"><div class="k">ETF shares outstanding</div><input id="soInput" type="text" value="${so?Math.round(so).toLocaleString():""}"><div class="n" title="${esc(r.shares_outstanding_method)}">${esc(r.shares_outstanding_method)} · editable</div></div>
+      <div class="card"><div class="k">Fund dividend income, last 12 mo</div><div class="v">${fmt$(r.fund_ttm_income,0)}</div><div class="n">gross, from the analyzed holdings</div></div>
+      <div class="card"><div class="k">Per ETF share, last 12 mo</div><div class="v">${fmtPS(perShareTTM)}</div><div class="n">vs. ETF actually paid ${fmtPS(r.etf_ttm_distribution)}${r.etf_price&&perShareTTM?` · ${(100*perShareTTM/r.etf_price).toFixed(2)}% gross yield`:""}</div></div>
+    </div>
+    ${r.warnings.length?`<div class="warn"><ul>${r.warnings.map(w=>`<li>${esc(w)}</li>`).join("")}</ul></div>`:""}
+    <div class="panel">
+      <div class="controls">${segHTML("range",RANGE_OPTS,etfState.range)}${segHTML("basis",BASIS_OPTS,etfState.basis)}<span class="total-line" id="etfTotal"></span></div>
+      <div class="chartbox"><canvas id="etfChart"></canvas></div>
+    </div>
+    <div class="panel"><h2>Daily dividends received by the fund</h2><div id="etfDaily"></div><p class="muted" style="font-size:12px;margin:8px 0 0">Click a day to see which companies paid. * = estimated pay date. Projected = last year's payment repeated where the next one hasn't been declared yet.</p></div>
+    <div class="panel"><h2>Holdings &amp; dividends</h2><div class="scroll"><table id="holdTable"><thead><tr>
+      <th class="l" data-k="t">Ticker</th><th class="l" data-k="n">Company</th><th data-k="sh">Shares held</th><th data-k="w">Weight</th>
+      <th data-k="dps">Div/share (12 mo)</th><th data-k="inc">Fund income (12 mo)</th><th data-k="pct">% of income</th><th data-k="ps">Per ETF share</th>
+      <th data-k="nx">Next ex-date</th><th data-k="np">Next pay date</th><th data-k="na">Next amount</th></tr></thead><tbody></tbody></table></div></div>
+    <div class="two">
+      <div class="panel"><h2>The ETF's own distributions</h2>${r.etf_distributions.length?`<div class="scroll" style="max-height:300px"><table><thead><tr><th class="l">Ex-date</th><th>Pay date</th><th>Amount/share</th></tr></thead><tbody>${[...r.etf_distributions].reverse().map(e=>`<tr><td class="l">${fmtDate(e.ex_date)}</td><td>${fmtDate(e.pay_date)}</td><td>${fmtPS(e.amount)}</td></tr>`).join("")}</tbody></table></div>`:`<p class="muted">Not available.</p>`}</div>
+      <div class="panel"><h2>Not included (${r.skipped.length})</h2>${r.skipped.length?`<details><summary>Show</summary><div class="scroll" style="max-height:300px"><table><tbody>${r.skipped.map(s=>`<tr><td class="l name">${esc(s.ticker||"")} ${esc(s.name)}</td><td>${fmtN(s.shares)}</td><td class="l muted">${esc(s.reason)}</td></tr>`).join("")}</tbody></table></div></details>`:`<p class="muted">Everything was analyzed.</p>`}</div>
+    </div>`;
+  const tb = $("#holdTable tbody");
+  tb.innerHTML = r.holdings.map(h=>{
+    const pct = r.fund_ttm_income ? 100*h.fund_ttm_income/r.fund_ttm_income : 0;
+    return `<tr data-t="${esc(h.ticker)}" data-n="${esc(h.name)}" data-sh="${h.shares}" data-w="${h.weight??""}" data-dps="${h.ttm_div_per_share}" data-inc="${h.fund_ttm_income}" data-pct="${pct}" data-ps="${so?h.fund_ttm_income/so:""}" data-nx="${h.next_ex||""}" data-np="${h.next_pay||""}" data-na="${h.next_amount??""}">
+      <td class="l"><b>${esc(h.ticker)}</b></td><td class="l name" title="${esc(h.name)}">${esc(h.name)}</td><td>${fmtN(h.shares)}</td><td>${h.weight!=null?h.weight.toFixed(2)+"%":"—"}</td>
+      <td>${h.ttm_div_per_share?fmtPS(h.ttm_div_per_share):'<span class="muted">none</span>'}</td><td>${fmt$(h.fund_ttm_income,0)}</td><td>${pct.toFixed(2)}%</td><td>${so?fmtPS(h.fund_ttm_income/so):"—"}</td>
+      <td>${fmtDate(h.next_ex)}</td><td>${fmtDate(h.next_pay)}</td><td>${h.next_amount!=null?fmtPS(h.next_amount):"—"}</td></tr>`;
+  }).join("");
+  sortable($("#holdTable"));
+  $("#soInput").onchange = e => { const v = parseFloat(e.target.value.replace(/,/g,"")); if(v>0){ etfData._so = v; renderETF(); } };
+  bindSeg(out, (k,v)=>{ etfState[k]=v; renderETFDaily(); });
+  renderETFDaily();
+}
+function renderETFDaily(){
+  const r = etfData, so = soFor(r);
+  const days = groupByDay(eventsWithShares(r), etfState.basis, etfState.range, e=>e.fund_amount);
+  const tot = days.reduce((s,d)=>s+d.total,0);
+  $("#etfTotal").innerHTML = `Fund total: ${fmt$(tot,0)}${so?` · per ETF share: ${fmtPS(tot/so)}`:""}`;
+  drawChart("etfChart", days, "Fund receives", so);
+  $("#etfDaily").innerHTML = dailyTableHTML(days, so, "Fund receives");
+  bindDaily($("#etfDaily"));
+}
+
+// =============== PORTFOLIO VIEW =================
+let pf = store.get("pf", [{t:"SCHD",s:100},{t:"VYM",s:50}]);
+let pfResults = null, pfState = {range:"next12", basis:"pay"};
+function renderPfRows(){
+  $("#pfRows").innerHTML = pf.map((p,i)=>`<div class="pf-row"><input class="tick" data-i="${i}" data-f="t" value="${esc(p.t)}" placeholder="ETF"><input class="sh" type="number" step="any" min="0" data-i="${i}" data-f="s" value="${p.s}" placeholder="shares"><span class="muted">shares</span><button class="btn ghost" type="button" data-del="${i}">✕</button></div>`).join("");
+  $("#pfRows").querySelectorAll("input").forEach(inp => inp.oninput = () => { const p = pf[inp.dataset.i]; if(inp.dataset.f==="t") p.t = inp.value.toUpperCase().trim(); else p.s = parseFloat(inp.value)||0; store.set("pf", pf); });
+  $("#pfRows").querySelectorAll("[data-del]").forEach(b => b.onclick = () => { pf.splice(+b.dataset.del,1); store.set("pf",pf); renderPfRows(); });
+}
+renderPfRows();
+$("#pfAdd").onclick = () => { pf.push({t:"",s:0}); renderPfRows(); };
+$("#pfGo").onclick = async () => {
+  const list = pf.filter(p=>p.t && p.s>0);
+  if(!list.length){ $("#pfErr").textContent = "Add at least one ETF with a share count."; return; }
+  $("#pfErr").textContent = ""; $("#pfGo").disabled = true; $("#pfOut").classList.add("hidden");
+  const max = +$("#pfMax").value||600, results = [], errors = [];
+  for(let i=0;i<list.length;i++){
+    const p = list[i];
+    try{
+      const r = await runAnalysis(p.t, max, false, (d,tot,m)=>setProg($("#pfProg"), i + d/Math.max(tot,1), list.length, `${p.t} (${i+1}/${list.length}): ${m}`));
+      results.push({etf:p.t, owned:p.s, r});
+    }catch(e){ errors.push(`${p.t}: ${e.message}`); }
+  }
+  $("#pfGo").disabled = false; $("#pfProg").classList.add("hidden");
+  if(errors.length) $("#pfErr").textContent = errors.join(" · ");
+  if(results.length){ pfResults = results; renderPf(); }
+};
+
+function pfEvents(){
+  // each event scaled by (your shares / ETF shares outstanding)
+  const evs = [];
+  for(const x of pfResults){
+    const so = x.r.shares_outstanding; if(!so) continue;
+    const frac = x.owned/so;
+    const sh = Object.fromEntries(x.r.holdings.map(h=>[h.ticker,h.shares]));
+    for(const e of x.r.events) evs.push({...e, via:x.etf, _shares: sh[e.ticker]*frac, _you: e.fund_amount*frac});
+  }
+  return evs;
+}
+function renderPf(){
+  const out = $("#pfOut"); out.classList.remove("hidden");
+  const evs = pfEvents();
+  const missingSO = pfResults.filter(x=>!x.r.shares_outstanding).map(x=>x.etf);
+  const sumIn = range => evs.filter(e=>inRange(e,"pay",range)).reduce((s,e)=>s+e._you,0);
+  const ttm = sumIn("ttm"), next12 = sumIn("next12");
+  const actual = pfResults.reduce((s,x)=>s + x.r.etf_ttm_distribution*x.owned, 0);
+  out.innerHTML = `
+    <div class="cards">
+      <div class="card"><div class="k">Look-through dividends, last 12 mo</div><div class="v">${fmt$(ttm)}</div><div class="n">gross, before fund expenses</div></div>
+      <div class="card"><div class="k">Projected next 12 months</div><div class="v">${fmt$(next12)}</div><div class="n">declared + repeat of last year</div></div>
+      <div class="card"><div class="k">ETFs actually paid you (12 mo)</div><div class="v">${fmt$(actual)}</div><div class="n">distributions × your current shares</div></div>
+      <div class="card"><div class="k">Companies paying you</div><div class="v">${new Set(evs.filter(e=>inRange(e,"pay","next12")||inRange(e,"pay","ttm")).map(e=>e.ticker)).size}</div><div class="n">across ${pfResults.length} ETF${pfResults.length>1?"s":""}</div></div>
+    </div>
+    ${missingSO.length?`<div class="warn">Couldn't determine shares outstanding for ${missingSO.join(", ")} — open it in the ETF lookup tab to check.</div>`:""}
+    <div class="panel">
+      <div class="controls">${segHTML("range",RANGE_OPTS,pfState.range)}${segHTML("basis",BASIS_OPTS,pfState.basis)}<span class="total-line" id="pfTotal"></span></div>
+      <div class="chartbox"><canvas id="pfChart"></canvas></div>
+    </div>
+    <div class="two">
+      <div class="panel"><h2>Where your dividends come from</h2><div id="pfCompanies"></div></div>
+      <div class="panel"><h2>By ETF</h2><div id="pfEtfs"></div></div>
+    </div>
+    <div class="panel"><h2>Your daily dividend calendar</h2><div id="pfDaily"></div></div>`;
+  bindSeg(out, (k,v)=>{ pfState[k]=v; renderPfDetail(); });
+  renderPfDetail();
+}
+function renderPfDetail(){
+  const evs = pfEvents().filter(e=>inRange(e,pfState.basis,pfState.range));
+  const total = evs.reduce((s,e)=>s+e._you,0);
+  $("#pfTotal").textContent = `Your total: ${fmt$(total)}`;
+  const days = groupByDay(pfEvents(), pfState.basis, pfState.range, e=>e._you);
+  drawChart("pfChart", days, "You receive (look-through)", null);
+  $("#pfDaily").innerHTML = dailyTableHTML(days, null, "You receive");
+  bindDaily($("#pfDaily"));
+
+  // by company
+  const byCo = new Map();
+  for(const e of evs){
+    if(!byCo.has(e.ticker)) byCo.set(e.ticker,{ticker:e.ticker,name:e.name,amt:0,via:{},shares:{}});
+    const c = byCo.get(e.ticker); c.amt += e._you; c.via[e.via]=(c.via[e.via]||0)+e._you; c.shares[e.via]=e._shares;
+  }
+  const cos = [...byCo.values()].sort((a,b)=>b.amt-a.amt);
+  $("#pfCompanies").innerHTML = cos.length ? `<div class="scroll"><table id="coTable"><thead><tr><th class="l" data-k="t">Ticker</th><th class="l" data-k="n">Company</th><th data-k="sh">Your effective shares</th><th class="l">Via</th><th data-k="a">Amount</th><th data-k="p">%</th></tr></thead><tbody>${
+    cos.map(c=>{ const sh = Object.values(c.shares).reduce((s,v)=>s+v,0); return `<tr data-t="${esc(c.ticker)}" data-n="${esc(c.name)}" data-sh="${sh}" data-a="${c.amt}" data-p="${c.amt/total}"><td class="l"><b>${esc(c.ticker)}</b></td><td class="l name" title="${esc(c.name)}">${esc(c.name)}</td><td>${fmtN(sh,3)}</td><td class="l muted">${Object.entries(c.via).map(([k,v])=>`${esc(k)} ${fmt$(v)}`).join(", ")}</td><td><b>${fmt$(c.amt)}</b></td><td>${(100*c.amt/total).toFixed(1)}%</td></tr>`; }).join("")
+  }</tbody></table></div>` : `<p class="muted">No payments in this range.</p>`;
+  if(cos.length) sortable($("#coTable"));
+
+  // by ETF
+  $("#pfEtfs").innerHTML = `<table><thead><tr><th class="l">ETF</th><th>Your shares</th><th>Your % of fund</th><th>Look-through</th><th>Per share</th></tr></thead><tbody>${
+    pfResults.map(x=>{ const amt = evs.filter(e=>e.via===x.etf).reduce((s,e)=>s+e._you,0); const so=x.r.shares_outstanding;
+      return `<tr><td class="l"><b>${esc(x.etf)}</b></td><td>${fmtN(x.owned,3)}</td><td>${so?(100*x.owned/so).toPrecision(3)+"%":"—"}</td><td>${fmt$(amt)}</td><td>${fmtPS(amt/x.owned)}</td></tr>`; }).join("")
+  }</tbody></table>`;
+}
+</script>
+</body>
+</html>
