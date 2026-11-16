@@ -32,7 +32,7 @@ def _run(job_id, etf, limit):
 
     try:
         res = analysis.analyze(etf, limit, progress)
-        cache.set(f"result2:{etf}:{limit}", res)
+        cache.set(f"result3:{etf}:{limit}", res)
         job.update(status="done", result=res, message="Done")
     except Exception as e:
         log.exception("analysis failed for %s", etf)
@@ -55,7 +55,7 @@ def start():
     refresh = bool(body.get("refresh"))
 
     if not refresh:
-        cached = cache.get(f"result2:{etf}:{limit}", RESULT_TTL)
+        cached = cache.get(f"result3:{etf}:{limit}", RESULT_TTL)
         if cached:
             jid = uuid.uuid4().hex
             _jobs[jid] = {"status": "done", "result": cached, "done": 1, "total": 1, "message": "Cached", "ts": time.time()}

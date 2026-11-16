@@ -382,7 +382,7 @@ def parse_nport(xml_bytes):
 
 def fetch_nport(etf):
     cik, series_id, _cls = sec_series_for_ticker(etf)
-    key = f"nport:{series_id}"
+    key = f"nport2:{series_id}"
     cached = cache.get(key, NPORT_TTL)
     if cached:
         return cached
@@ -412,8 +412,36 @@ def fetch_nport(etf):
     return res
 
 
+_NAME_DROP = {"inc", "incorporated", "corp", "corporation", "co", "company", "plc", "ltd", "limited", "the",
+              "sa", "nv", "ag", "se", "lp", "llc", "class", "cl", "a", "b", "c", "common", "stock", "shares", "new"}
+
+
+def _norm_name(n):
+    n = (n or "").lower().replace("&", " and ")
+    n = re.sub(r"/the\b", " ", n)
+    n = re.sub(r"[^a-z0-9 ]", " ", n)
+    return " ".join(w for w in n.split() if w not in _NAME_DROP)
+
+
+def sec_name_index():
+    """Normalized company name -> ticker, from the SEC's company ticker list."""
+    idx = cache.get("sec:name_index", 7 * 24 * 3600)
+    if idx:
+        return idx
+    r = _sec_get("https://www.sec.gov/files/company_tickers.json")
+    if r.status_code != 200:
+        raise SourceError(f"SEC company list HTTP {r.status_code}")
+    idx = {}
+    for rec in r.json().values():
+        key = _norm_name(rec.get("title"))
+        if key and key not in idx:  # first listed ticker is the primary one
+            idx[key] = norm_ticker(rec.get("ticker"))
+    cache.set("sec:name_index", idx)
+    return idx
+
+
 def map_missing_tickers(holdings):
-    """Fill missing tickers via OpenFIGI using CUSIP/ISIN (US listings only)."""
+    """Fill missing tickers: OpenFIGI by CUSIP/ISIN, then SEC company-name match."""
     todo = []
     for h in holdings:
         if h["ticker"]:
@@ -421,8 +449,8 @@ def map_missing_tickers(holdings):
         ident = h.get("cusip") or h.get("isin")
         if not ident:
             continue
-        c = cache.get(f"figi:{ident}", FIGI_TTL)
-        if c is not None:
+        c = cache.get(f"figi2:{ident}", FIGI_TTL)
+        if c:
             h["ticker"] = c
         else:
             todo.append(h)
@@ -438,21 +466,38 @@ def map_missing_tickers(holdings):
                 jobs.append({"idType": "ID_CUSIP", "idValue": h["cusip"], "exchCode": "US"})
             else:
                 jobs.append({"idType": "ID_ISIN", "idValue": h["isin"], "exchCode": "US"})
-        try:
-            r = _session.post("https://api.openfigi.com/v3/mapping", json=jobs, headers=headers, timeout=30)
-            if r.status_code == 429:
-                time.sleep(6)
+        res = []
+        for attempt in range(4):
+            try:
                 r = _session.post("https://api.openfigi.com/v3/mapping", json=jobs, headers=headers, timeout=30)
-            res = r.json() if r.status_code == 200 else []
-        except (requests.RequestException, ValueError):
-            res = []
+                if r.status_code == 429:
+                    time.sleep(8 * (attempt + 1))
+                    continue
+                res = r.json() if r.status_code == 200 else []
+            except (requests.RequestException, ValueError):
+                time.sleep(2)
+                continue
+            break
         for h, item in zip(chunk, res):
             data = (item or {}).get("data") or []
             t = norm_ticker(data[0].get("ticker")) if data else ""
-            h["ticker"] = t
-            cache.set(f"figi:{h.get('cusip') or h.get('isin')}", t)
+            if t:
+                h["ticker"] = t
+                cache.set(f"figi2:{h.get('cusip') or h.get('isin')}", t)
         if i + batch < len(todo):
             time.sleep(0.3 if OPENFIGI_KEY else 2.6)  # stay under free rate limit
+
+    missing = [h for h in holdings if not h["ticker"]]
+    if missing:
+        try:
+            idx = sec_name_index()
+        except Exception as e:
+            log.info("SEC name index unavailable: %s", e)
+            return
+        for h in missing:
+            t = idx.get(_norm_name(h["name"]))
+            if t:
+                h["ticker"] = t
 
 
 # --------------------------------------------------------------------------- holdings entry

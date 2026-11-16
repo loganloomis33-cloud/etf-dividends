@@ -117,6 +117,8 @@ def fake_get(url, headers=None, timeout=20, **kw):
         return R(200, b"Fund Ticker,Security Identifier,Holding Ticker\n")
     if "vanguard.com" in url:
         return R(404, b"")
+    if url.endswith("/files/company_tickers.json"):
+        return R(js={"0": {"cik_str": 34088, "ticker": "XOM", "title": "EXXON MOBIL CORP"}, "1": {"cik_str": 1, "ticker": "KO", "title": "COCA COLA CO"}})
     if "company_tickers_mf.json" in url:
         return R(js={"fields": ["cik", "seriesId", "classId", "symbol"],
                      "data": [[1454889, "S000033459", "C000102850", "SCHD"]]})
@@ -154,7 +156,7 @@ class FakePostResp(R):
 
 def fake_post(url, json=None, headers=None, timeout=30):
     assert "openfigi" in url
-    m = {"713448108": "PEP", "30231G102": "XOM"}
+    m = {"713448108": "PEP"}
     return FakePostResp(js=[{"data": [{"ticker": m[j["idValue"]], "exchCode": "US"}]} if j["idValue"] in m else {"warning": "No identifier found."} for j in json])
 
 
