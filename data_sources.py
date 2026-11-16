@@ -250,7 +250,20 @@ def fetch_vanguard(etf):
 # --------------------------------------------------------------------------- SEC N-PORT
 
 def _sec_get(url):
-    return http_get(url, headers={"User-Agent": SEC_UA, "Accept-Encoding": "gzip, deflate"})
+    # SEC gets its own plain requests (no shared browser-like session), which it handles reliably.
+    last = None
+    for attempt in range(3):
+        try:
+            r = requests.get(url, headers={"User-Agent": SEC_UA, "Accept-Encoding": "gzip, deflate"}, timeout=30)
+            if r.status_code == 429 or r.status_code >= 500:
+                last = SourceError(f"SEC HTTP {r.status_code}")
+                time.sleep(2 * (attempt + 1))
+                continue
+            return r
+        except requests.RequestException as e:
+            last = e
+            time.sleep(1.5 * (attempt + 1))
+    raise SourceError(f"SEC request failed: {last}")
 
 
 def sec_series_for_ticker(etf):

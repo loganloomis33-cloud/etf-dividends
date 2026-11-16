@@ -92,33 +92,6 @@ def _gc():
         _jobs.pop(k, None)
 
 
-@app.get("/api/debug/sec")
-def debug_sec():
-    import requests as rq
-    import data_sources as ds
-    urls = [
-        "https://www.sec.gov/files/company_tickers_mf.json",
-        "https://data.sec.gov/submissions/CIK0001454889.json",
-        "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=S000027515&type=NPORT-P&count=5&output=atom",
-        "https://efts.sec.gov/LATEST/search-index?q=%22SCHD%22&forms=NPORT-P",
-    ]
-    variants = {
-        "sec_ua": {"User-Agent": ds.SEC_UA, "Accept-Encoding": "gzip, deflate", "Host": None},
-        "browser_ua": {"User-Agent": ds.BROWSER_UA},
-    }
-    out = []
-    for u in urls:
-        for name, h in variants.items():
-            h = {k: v for k, v in h.items() if v}
-            t = time.time()
-            try:
-                r = rq.get(u, headers=h, timeout=12)
-                out.append([u, name, r.status_code, round(time.time() - t, 2), len(r.content), r.text[:120]])
-            except Exception as e:
-                out.append([u, name, "ERR", round(time.time() - t, 2), str(e)[:160]])
-    return jsonify(ua=ds.SEC_UA, results=out)
-
-
 @app.get("/healthz")
 def health():
     return "ok"

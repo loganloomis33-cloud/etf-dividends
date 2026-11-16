@@ -154,6 +154,7 @@ def fake_post(url, json=None, headers=None, timeout=30):
 
 
 ds.http_get = fake_get
+ds.requests.get = fake_get
 ds._session.post = fake_post
 _real_sleep = time.sleep
 ds.time = type("T", (), {"sleep": staticmethod(lambda s: None), "time": staticmethod(time.time)})
