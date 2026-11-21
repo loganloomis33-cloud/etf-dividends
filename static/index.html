@@ -345,6 +345,40 @@ function pfEvents(){
   }
   return evs;
 }
+function pfOwnership(){
+  // your look-through stake in every company, summed across ETFs
+  const map = new Map();
+  for(const x of pfResults){
+    const so = x.r.shares_outstanding; if(!so) continue;
+    const frac = x.owned/so, etfValue = x.r.etf_price ? x.owned*x.r.etf_price : null;
+    const rows = [...x.r.holdings, ...x.r.skipped.filter(s=>s.shares && !/\b(us dollar|cash|money market|liquidity fund|treasury (obligations|portfolio)|govt? (mmf|money))\b/i.test(s.name))];
+    for(const p of rows){
+      const key = p.ticker || p.name;
+      const val = (p.weight!=null && etfValue) ? etfValue*p.weight/100 : (p.value ? p.value*frac : null);
+      if(!map.has(key)) map.set(key, {ticker:p.ticker||"", name:p.name, shares:0, value:0, hasValue:false, div:0, via:{}});
+      const o = map.get(key);
+      o.shares += p.shares*frac;
+      if(val!=null){ o.value += val; o.hasValue = true; }
+      o.div += (p.fund_ttm_income||0)*frac;
+      o.via[x.etf] = (o.via[x.etf]||0) + (val ?? 0);
+    }
+  }
+  return [...map.values()].sort((a,b)=>b.value-a.value);
+}
+function renderOwnership(){
+  const own = pfOwnership(), total = own.reduce((s,o)=>s+o.value,0);
+  const q = ($("#ownSearch")?.value||"").trim().toLowerCase();
+  const list = q ? own.filter(o=>o.ticker.toLowerCase().includes(q)||o.name.toLowerCase().includes(q)) : own;
+  $("#ownCount").textContent = `${own.length} companies · ${fmt$(total)} total look-through value`;
+  $("#ownTable").innerHTML = `<div class="scroll"><table id="ownT"><thead><tr><th class="l" data-k="t">Ticker</th><th class="l" data-k="n">Company</th><th data-k="sh">Your shares</th><th data-k="v">Value</th><th data-k="p">% of your portfolio</th><th class="l">Via</th><th data-k="d">Your dividends (12 mo)</th></tr></thead><tbody>${
+    list.map(o=>`<tr data-t="${esc(o.ticker)}" data-n="${esc(o.name)}" data-sh="${o.shares}" data-v="${o.value}" data-p="${total?o.value/total:0}" data-d="${o.div}">
+      <td class="l"><b>${esc(o.ticker)||"—"}</b></td><td class="l name" title="${esc(o.name)}">${esc(o.name)}</td>
+      <td>${fmtN(o.shares, o.shares<10?4:2)}</td><td>${o.hasValue?fmt$(o.value):"—"}</td><td>${o.hasValue&&total?(100*o.value/total).toFixed(2)+"%":"—"}</td>
+      <td class="l muted">${Object.entries(o.via).map(([k,v])=>`${esc(k)}${Object.keys(o.via).length>1&&v?" "+fmt$(v):""}`).join(", ")}</td>
+      <td>${o.div?fmt$(o.div):'<span class="muted">—</span>'}</td></tr>`).join("")
+  }</tbody></table></div>`;
+  sortable($("#ownT"));
+}
 function renderPf(){
   const out = $("#pfOut"); out.classList.remove("hidden");
   const evs = pfEvents();
@@ -364,12 +398,19 @@ function renderPf(){
       <div class="controls">${segHTML("range",RANGE_OPTS,pfState.range)}${segHTML("basis",BASIS_OPTS,pfState.basis)}<span class="total-line" id="pfTotal"></span></div>
       <div class="chartbox"><canvas id="pfChart"></canvas></div>
     </div>
+    <div class="panel">
+      <div class="controls"><h2 style="margin:0">What you own</h2><input id="ownSearch" placeholder="Search ticker or company" style="width:220px"><span class="total-line muted" id="ownCount" style="font-weight:600"></span></div>
+      <p class="muted" style="font-size:12px;margin:0 0 8px">Your share of every company held by your ETFs, combined. Value = your ETF value × the company's weight in the fund. Click a column to sort.</p>
+      <div id="ownTable"></div>
+    </div>
     <div class="two">
       <div class="panel"><h2>Where your dividends come from</h2><div id="pfCompanies"></div></div>
       <div class="panel"><h2>By ETF</h2><div id="pfEtfs"></div></div>
     </div>
     <div class="panel"><h2>Your daily dividend calendar</h2><div id="pfDaily"></div></div>`;
   bindSeg(out, (k,v)=>{ pfState[k]=v; renderPfDetail(); });
+  $("#ownSearch").oninput = renderOwnership;
+  renderOwnership();
   renderPfDetail();
 }
 function renderPfDetail(){

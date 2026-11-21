@@ -63,7 +63,8 @@ def analyze(etf, max_holdings=600, progress=lambda done, total, msg: None):
         if not x.get("shares") or x["shares"] <= 0 or (x.get("asset") == "cash"):
             continue
         if not x.get("ticker"):
-            skipped.append({"name": x["name"], "shares": x["shares"], "reason": "no US ticker (foreign listing or unmapped)"})
+            skipped.append({"name": x["name"], "shares": x["shares"], "weight": x.get("weight"), "value": x.get("value"),
+                            "reason": "no US ticker (foreign listing or unmapped)"})
             continue
         eq.append(x)
     # merge duplicate tickers
@@ -79,7 +80,8 @@ def analyze(etf, max_holdings=600, progress=lambda done, total, msg: None):
     eq = sorted(merged.values(), key=_rank_key)
     if len(eq) > max_holdings:
         for x in eq[max_holdings:]:
-            skipped.append({"name": x["name"], "ticker": x["ticker"], "shares": x["shares"], "reason": f"beyond top {max_holdings} holdings limit"})
+            skipped.append({"name": x["name"], "ticker": x["ticker"], "shares": x["shares"], "weight": x.get("weight"),
+                            "value": x.get("value"), "reason": f"beyond top {max_holdings} holdings limit"})
         warnings.append(f"Only the top {max_holdings} of {len(eq)} holdings were analyzed (raise the limit to include all).")
         eq = eq[:max_holdings]
 
