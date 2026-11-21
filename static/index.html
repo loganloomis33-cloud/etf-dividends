@@ -223,23 +223,34 @@ const KIND_BADGE = k => `<span class="badge ${k}">${k==="paid"?"paid":k==="decla
 const RANGE_OPTS = [["upcoming","Upcoming (declared)"],["next12","Next 12 months (incl. projected)"],["ttm","Last 12 months"]];
 const BASIS_OPTS = [["pay","By pay date"],["ex","By ex-date"]];
 
-function dailyTableHTML(days, perShare, amountLabel){
-  if(!days.length) return `<p class="muted">No dividend payments in this range.</p>`;
-  let h = `<div class="scroll"><table><thead><tr><th class="l">Date</th><th>${amountLabel}</th>${perShare?"<th>Per ETF share</th>":""}<th>Companies</th></tr></thead><tbody>`;
-  days.forEach((d,i)=>{
-    h += `<tr class="day" data-i="${i}"><td class="l">▸ ${fmtDate(d.date)}${d.date===TODAY?" <b>(today)</b>":""}</td><td><b>${fmt$(d.total)}</b></td>${perShare?`<td>${fmtPS(d.total/perShare)}</td>`:""}<td>${d.items.length}</td></tr>`;
-    h += `<tr class="detail hidden" data-for="${i}"><td colspan="${perShare?4:3}"><table><thead><tr><th class="l">Ticker</th><th class="l">Company</th><th>Ex-date</th><th>Pay date</th><th>$/share</th><th>Shares</th><th>Amount</th><th class="l">Status</th></tr></thead><tbody>` +
-      d.items.map(e=>`<tr><td class="l"><b>${esc(e.ticker)}</b></td><td class="l name">${esc(e.name)}${e.via?` <span class="muted">via ${esc(e.via)}</span>`:""}</td><td>${fmtDate(e.ex_date)}</td><td>${fmtDate(e.pay_date)}${e.pay_est?"*":""}</td><td>${fmtPS(e.amount)}</td><td>${fmtN(e._shares ?? e.shares, e._shares!=null && e._shares<100 ? 3 : 0)}</td><td>${fmt$(e._amt)}</td><td class="l">${KIND_BADGE(e.kind)}${/special/i.test(e.type)?' <span class="badge">special</span>':""}</td></tr>`).join("") +
-      `</tbody></table></td></tr>`;
-  });
-  return h + "</tbody></table></div>";
+const DAY_PAGE = 60;
+function detailRowHTML(d, cols){
+  return `<tr class="detail"><td colspan="${cols}"><table><thead><tr><th class="l">Ticker</th><th class="l">Company</th><th>Ex-date</th><th>Pay date</th><th>$/share</th><th>Shares</th><th>Amount</th><th class="l">Status</th></tr></thead><tbody>` +
+    d.items.map(e=>`<tr><td class="l"><b>${esc(e.ticker)}</b></td><td class="l name">${esc(e.name)}${e.via?` <span class="muted">via ${esc(e.via)}</span>`:""}</td><td>${fmtDate(e.ex_date)}</td><td>${fmtDate(e.pay_date)}${e.pay_est?"*":""}</td><td>${fmtPS(e.amount)}</td><td>${fmtN(e._shares ?? e.shares, e._shares!=null && e._shares<100 ? 3 : 0)}</td><td>${fmt$(e._amt)}</td><td class="l">${KIND_BADGE(e.kind)}${/special/i.test(e.type)?' <span class="badge">special</span>':""}</td></tr>`).join("") +
+    `</tbody></table></td></tr>`;
 }
-function bindDaily(root){
-  root.querySelectorAll("tr.day").forEach(tr => tr.onclick = () => {
-    const det = root.querySelector(`tr.detail[data-for="${tr.dataset.i}"]`);
-    det.classList.toggle("hidden");
-    tr.cells[0].innerHTML = tr.cells[0].innerHTML.replace(/^[▸▾]/, det.classList.contains("hidden")?"▸":"▾");
-  });
+// Renders the day list; per-company detail is built only when a day is clicked, and long lists are paged.
+function renderDaily(root, days, perShare, amountLabel){
+  if(!days.length){ root.innerHTML = `<p class="muted">No dividend payments in this range.</p>`; return; }
+  const cols = perShare ? 4 : 3;
+  let shown = 0;
+  root.innerHTML = `<div class="scroll"><table><thead><tr><th class="l">Date</th><th>${amountLabel}</th>${perShare?"<th>Per ETF share</th>":""}<th>Companies</th></tr></thead><tbody></tbody></table></div><div class="more"></div>`;
+  const tb = root.querySelector("tbody"), more = root.querySelector(".more");
+  const addRows = () => {
+    const next = days.slice(shown, shown + DAY_PAGE);
+    tb.insertAdjacentHTML("beforeend", next.map((d,j)=>{ const i = shown + j;
+      return `<tr class="day" data-i="${i}"><td class="l">▸ ${fmtDate(d.date)}${d.date===TODAY?" <b>(today)</b>":""}</td><td><b>${fmt$(d.total)}</b></td>${perShare?`<td>${fmtPS(d.total/perShare)}</td>`:""}<td>${d.items.length}</td></tr>`; }).join(""));
+    shown += next.length;
+    more.innerHTML = shown < days.length ? `<button class="btn ghost" type="button" style="margin-top:8px">Show ${Math.min(DAY_PAGE, days.length-shown)} more days (${days.length-shown} left)</button>` : "";
+    const b = more.querySelector("button"); if(b) b.onclick = addRows;
+  };
+  addRows();
+  tb.onclick = ev => {
+    const tr = ev.target.closest("tr.day"); if(!tr) return;
+    const nxt = tr.nextElementSibling;
+    if(nxt && nxt.classList.contains("detail")){ nxt.remove(); tr.cells[0].innerHTML = tr.cells[0].innerHTML.replace(/^▾/,"▸"); }
+    else { tr.insertAdjacentHTML("afterend", detailRowHTML(days[+tr.dataset.i], cols)); tr.cells[0].innerHTML = tr.cells[0].innerHTML.replace(/^▸/,"▾"); }
+  };
 }
 
 // =============== ETF VIEW =================
@@ -256,7 +267,7 @@ $("#etfForm").onsubmit = async ev => {
   finally{ $("#etfGo").disabled = false; $("#etfProg").classList.add("hidden"); }
 };
 function soFor(r){ return r._so || r.shares_outstanding; }
-function eventsWithShares(r){ const sh = Object.fromEntries(r.holdings.map(h=>[h.ticker,h.shares])); return r.events.map(e=>({...e, shares: sh[e.ticker]})); }
+function eventsWithShares(r){ if(r._evs) return r._evs; const sh = Object.fromEntries(r.holdings.map(h=>[h.ticker,h.shares])); return (r._evs = r.events.map(e=>({...e, shares: sh[e.ticker]}))); }
 
 function renderETF(){
   const r = etfData, so = soFor(r), out = $("#etfOut");
@@ -303,8 +314,7 @@ function renderETFDaily(){
   const tot = days.reduce((s,d)=>s+d.total,0);
   $("#etfTotal").innerHTML = `Fund total: ${fmt$(tot,0)}${so?` · per ETF share: ${fmtPS(tot/so)}`:""}`;
   drawChart("etfChart", days, "Fund receives", so);
-  $("#etfDaily").innerHTML = dailyTableHTML(days, so, "Fund receives");
-  bindDaily($("#etfDaily"));
+  renderDaily($("#etfDaily"), days, so, "Fund receives");
 }
 
 // =============== PORTFOLIO VIEW =================
@@ -331,11 +341,13 @@ $("#pfGo").onclick = async () => {
   }
   $("#pfGo").disabled = false; $("#pfProg").classList.add("hidden");
   if(errors.length) $("#pfErr").textContent = errors.join(" · ");
-  if(results.length){ pfResults = results; renderPf(); }
+  if(results.length){ pfResults = results; _pfEvs = null; _pfOwn = null; renderPf(); }
 };
 
+let _pfEvs = null;
 function pfEvents(){
-  // each event scaled by (your shares / ETF shares outstanding)
+  // each event scaled by (your shares / ETF shares outstanding); computed once per calculation
+  if(_pfEvs) return _pfEvs;
   const evs = [];
   for(const x of pfResults){
     const so = x.r.shares_outstanding; if(!so) continue;
@@ -343,10 +355,12 @@ function pfEvents(){
     const sh = Object.fromEntries(x.r.holdings.map(h=>[h.ticker,h.shares]));
     for(const e of x.r.events) evs.push({...e, via:x.etf, _shares: sh[e.ticker]*frac, _you: e.fund_amount*frac});
   }
-  return evs;
+  return (_pfEvs = evs);
 }
+let _pfOwn = null, _ownAll = false, _ownTimer = null;
 function pfOwnership(){
   // your look-through stake in every company, summed across ETFs
+  if(_pfOwn) return _pfOwn;
   const map = new Map();
   for(const x of pfResults){
     const so = x.r.shares_outstanding; if(!so) continue;
@@ -363,12 +377,13 @@ function pfOwnership(){
       o.via[x.etf] = (o.via[x.etf]||0) + (val ?? 0);
     }
   }
-  return [...map.values()].sort((a,b)=>b.value-a.value);
+  return (_pfOwn = [...map.values()].sort((a,b)=>b.value-a.value));
 }
 function renderOwnership(){
   const own = pfOwnership(), total = own.reduce((s,o)=>s+o.value,0);
   const q = ($("#ownSearch")?.value||"").trim().toLowerCase();
-  const list = q ? own.filter(o=>o.ticker.toLowerCase().includes(q)||o.name.toLowerCase().includes(q)) : own;
+  const matches = q ? own.filter(o=>o.ticker.toLowerCase().includes(q)||o.name.toLowerCase().includes(q)) : own;
+  const OWN_CAP = 150, list = _ownAll ? matches : matches.slice(0, OWN_CAP);
   $("#ownCount").textContent = `${own.length} companies · ${fmt$(total)} total look-through value`;
   $("#ownTable").innerHTML = `<div class="scroll"><table id="ownT"><thead><tr><th class="l" data-k="t">Ticker</th><th class="l" data-k="n">Company</th><th data-k="sh">Your shares</th><th data-k="v">Value</th><th data-k="p">% of your portfolio</th><th class="l">Via</th><th data-k="d">Your dividends (12 mo)</th></tr></thead><tbody>${
     list.map(o=>`<tr data-t="${esc(o.ticker)}" data-n="${esc(o.name)}" data-sh="${o.shares}" data-v="${o.value}" data-p="${total?o.value/total:0}" data-d="${o.div}">
@@ -376,8 +391,9 @@ function renderOwnership(){
       <td>${fmtN(o.shares, o.shares<10?4:2)}</td><td>${o.hasValue?fmt$(o.value):"—"}</td><td>${o.hasValue&&total?(100*o.value/total).toFixed(2)+"%":"—"}</td>
       <td class="l muted">${Object.entries(o.via).map(([k,v])=>`${esc(k)}${Object.keys(o.via).length>1&&v?" "+fmt$(v):""}`).join(", ")}</td>
       <td>${o.div?fmt$(o.div):'<span class="muted">—</span>'}</td></tr>`).join("")
-  }</tbody></table></div>`;
+  }</tbody></table></div>${list.length < matches.length ? `<button class="btn ghost" type="button" id="ownMore" style="margin-top:8px">Show all ${matches.length} (sorting applies to the rows shown)</button>` : ""}`;
   sortable($("#ownT"));
+  const m = $("#ownMore"); if(m) m.onclick = () => { _ownAll = true; renderOwnership(); };
 }
 function renderPf(){
   const out = $("#pfOut"); out.classList.remove("hidden");
@@ -409,7 +425,8 @@ function renderPf(){
     </div>
     <div class="panel"><h2>Your daily dividend calendar</h2><div id="pfDaily"></div></div>`;
   bindSeg(out, (k,v)=>{ pfState[k]=v; renderPfDetail(); });
-  $("#ownSearch").oninput = renderOwnership;
+  _ownAll = false;
+  $("#ownSearch").oninput = () => { clearTimeout(_ownTimer); _ownTimer = setTimeout(renderOwnership, 150); };
   renderOwnership();
   renderPfDetail();
 }
@@ -419,8 +436,7 @@ function renderPfDetail(){
   $("#pfTotal").textContent = `Your total: ${fmt$(total)}`;
   const days = groupByDay(pfEvents(), pfState.basis, pfState.range, e=>e._you);
   drawChart("pfChart", days, "You receive (look-through)", null);
-  $("#pfDaily").innerHTML = dailyTableHTML(days, null, "You receive");
-  bindDaily($("#pfDaily"));
+  renderDaily($("#pfDaily"), days, null, "You receive");
 
   // by company
   const byCo = new Map();
